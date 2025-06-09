@@ -62,12 +62,14 @@ async def help_command(interaction: discord.Interaction):
 - `-c "code"`  (inline code to run)
 - `-ln file1 file2 ...` (optional linked filenames)
 - `-f "flags"` (optional compiler flags)
+- `-fl` (will prompt for file upload in next message)
 
 **Examples:**
 - `/eval -r main.c` (auto detects C)
 - `/eval -r -l c -ln main.c`
 - `/eval -r -l python -c "print(123)"`
 - `/eval -r -l rust -c "fn main() { println!(\"Hello\"); }"`
+- `/eval -r -fl` (then send file in next message)
 
 **Security Notice:**
 This bot executes code with basic protection (timeouts, temp dirs). Use with caution.
@@ -85,13 +87,7 @@ async def logs_command(interaction: discord.Interaction):
 
     await interaction.response.send_message(text[:1900], ephemeral=True)
 
-@tree.command(name="eval", description="Run code or files")
-@app_commands.describe(flags="Command-line style flags, e.g. -l python -c 'print(123)'")
-async def eval_command(interaction: discord.Interaction, flags: str):
-    await interaction.response.defer(thinking=True)
-
-    args = shlex.split(flags)
-
+async def process_eval(interaction: discord.Interaction, args: list, attachments: list):
     language = None
     code = None
     linked_files = []
@@ -117,10 +113,6 @@ async def eval_command(interaction: discord.Interaction, flags: str):
         else:
             i += 1
 
-    # If no -ln given, auto use all attachments
-    if not linked_files and interaction.attachments:
-        linked_files = [a.filename for a in interaction.attachments]
-
     sources = ""
     output_name = f"{TEMP_DIR}/{uuid.uuid4().hex}"
 
@@ -144,7 +136,7 @@ async def eval_command(interaction: discord.Interaction, flags: str):
         # Save attachments if provided
         used_attachments = []
 
-        for attachment in interaction.attachments:
+        for attachment in attachments:
             if (not linked_files) or (attachment.filename in linked_files):
                 file_path = os.path.join(TEMP_DIR, attachment.filename)
                 await attachment.save(file_path)
@@ -223,6 +215,29 @@ async def eval_command(interaction: discord.Interaction, flags: str):
                 os.remove(os.path.join(TEMP_DIR, f))
             except Exception:
                 pass
+
+@tree.command(name="eval", description="Run code or files")
+@app_commands.describe(flags="Command-line style flags, e.g. -l python -c 'print(123)'")
+async def eval_command(interaction: discord.Interaction, flags: str):
+    args = shlex.split(flags)
+    
+    if "-fl" in args:
+        # Ask for file in follow-up
+        await interaction.response.send_message("Please send your file as an attachment in the next message.")
+        
+        def check(m):
+            return m.author == interaction.user and m.attachments and m.channel == interaction.channel
+        
+        try:
+            msg = await client.wait_for('message', check=check, timeout=60.0)
+            # Now process with the attachment
+            await interaction.followup.send("Processing your file...")
+            await process_eval(interaction, args, msg.attachments)
+        except asyncio.TimeoutError:
+            await interaction.followup.send("Timed out waiting for file.", ephemeral=True)
+    else:
+        await interaction.response.defer(thinking=True)
+        await process_eval(interaction, args, [])
 
 @client.event
 async def on_ready():
