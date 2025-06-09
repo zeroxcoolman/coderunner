@@ -7,12 +7,12 @@ import subprocess
 import uuid
 import traceback
 
-# Bot token (use .env or Railway secret)
+# Bot token
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
 # Intents
 intents = discord.Intents.default()
-intents.message_content = True  # Needed to see message content
+intents.message_content = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
@@ -47,7 +47,6 @@ LANGUAGES = {
     },
 }
 
-# Logs (last N runs)
 MAX_LOGS = 10
 RUN_LOGS = []
 
@@ -59,33 +58,25 @@ async def help_command(interaction: discord.Interaction):
 `/help` - Show this help message
 
 `/eval -r [options]`
-- `-l language` (c, python, rust) - optional if files attached
-- `-c "code"`  (inline code to run)
-- `-ln file1 file2 ...` (optional linked filenames)
-- `-f "flags"` (optional compiler flags)
-- `-fl` (will prompt for file upload - reply with @coderunner.bot and your file)
+- `-l language` (c, python, rust, go, bash)
+- `-c "code"` (inline code)
+- `-ln file1 file2` (link specific files)
+- `-f "flags"` (compiler flags)
+- `-fl` (upload files in next message)
 
 **Examples:**
-- `/eval -r main.c` (auto detects C)
-- `/eval -r -l c -ln main.c`
-- `/eval -r -l python -c "print(123)"`
-- `/eval -r -l rust -c "fn main() { println!(\"Hello\"); }"`
-- `/eval -r -fl` (then reply with @coderunner.bot and your file)
-
-**Security Notice:**
-This bot executes code with basic protection (timeouts, temp dirs). Use with caution.
+- `/eval -r main.c` (auto-detects C)
+- `/eval -r -l python -c "print('hello')"`
+- `/eval -r -ln main.c helper.c` (multiple files)
+- `/eval -r -fl` (upload files after command)
 """
     await interaction.response.send_message(help_text, ephemeral=True)
 
 @tree.command(name="logs", description="Show last N eval runs")
 async def logs_command(interaction: discord.Interaction):
-    text = "**Last Runs:**\n"
-    if not RUN_LOGS:
-        text += "No runs yet."
-    else:
-        for log in reversed(RUN_LOGS[-MAX_LOGS:]):
-            text += f"\n`{log}`"
-
+    text = "**Last Runs:**\n" + "\n".join(
+        f"`{log}`" for log in reversed(RUN_LOGS[-MAX_LOGS:])
+    ) if RUN_LOGS else "No runs yet."
     await interaction.response.send_message(text[:1900], ephemeral=True)
 
 async def process_eval(interaction: discord.Interaction, args: list, attachments: list):
@@ -94,7 +85,7 @@ async def process_eval(interaction: discord.Interaction, args: list, attachments
     linked_files = []
     compiler_flags = ""
 
-    # Parse args
+    # Parse arguments
     i = 0
     while i < len(args):
         if args[i] == "-l":
@@ -118,53 +109,62 @@ async def process_eval(interaction: discord.Interaction, args: list, attachments
     output_name = f"{TEMP_DIR}/{uuid.uuid4().hex}"
 
     try:
-        # Save inline code if provided
+        # Handle inline code
         if code:
             if not language:
-                await interaction.followup.send("Error: Language (-l) required when using inline code (-c).")
+                await interaction.followup.send("Error: Language (-l) required with -c")
                 return
-
-            lang_info = LANGUAGES.get(language)
-            if not lang_info:
+            if language not in LANGUAGES:
                 await interaction.followup.send(f"Unsupported language: {language}")
                 return
 
-            source_file = f"{TEMP_DIR}/{uuid.uuid4().hex}{lang_info['extension']}"
+            ext = LANGUAGES[language]["extension"]
+            source_file = f"{TEMP_DIR}/{uuid.uuid4().hex}{ext}"
             with open(source_file, "w") as f:
                 f.write(code)
             sources += source_file + " "
 
-        # Save attachments if provided
+        # Handle attachments
         used_attachments = []
         for attachment in attachments:
-            if (not linked_files) or (attachment.filename in linked_files):
+            if not linked_files or attachment.filename in linked_files:
                 file_path = os.path.join(TEMP_DIR, attachment.filename)
                 await attachment.save(file_path)
                 sources += file_path + " "
                 used_attachments.append(attachment.filename)
 
-        # Auto detect language if not set and files uploaded
+        # Auto-detect language from first file if not specified
         if not language and used_attachments:
             ext = os.path.splitext(used_attachments[0])[1]
             for lang, info in LANGUAGES.items():
-                if ext == info['extension']:
+                if ext == info["extension"]:
                     language = lang
                     break
-
-            if not language:
-                await interaction.followup.send("Could not auto-detect language from file extension.")
+            else:
+                await interaction.followup.send("Could not auto-detect language")
                 return
 
         # Validate language
-        lang_info = LANGUAGES.get(language)
-        if not lang_info:
+        if language not in LANGUAGES:
             await interaction.followup.send(f"Unsupported language: {language}")
             return
 
+        lang_info = LANGUAGES[language]
+
         # Compile if needed
         if "compile" in lang_info:
-            compile_cmd = lang_info["compile"].format(sources=sources.strip(), output=output_name, flags=compiler_flags)
-            compile_result = subprocess.run(compile_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+            compile_cmd = lang_info["compile"].format(
+                sources=sources.strip(),
+                output=output_name,
+                flags=compiler_flags
+            )
+            compile_result = subprocess.run(
+                compile_cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10
+            )
 
             if compile_result.returncode != 0:
                 output = f"**Compilation failed:**\n```{compile_result.stderr.decode()}```"
@@ -176,54 +176,58 @@ async def process_eval(interaction: discord.Interaction, args: list, attachments
         else:
             run_cmd = lang_info["run"].format(sources=sources.strip())
 
-        # Run program
-        run_result = subprocess.run(run_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        # Execute
+        run_result = subprocess.run(
+            run_cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10
+        )
 
-        output_text = ""
+        # Format output
+        output = []
         if run_result.stdout:
-            output_text += f"**Output:**\n```{run_result.stdout.decode()}```\n"
+            output.append(f"**Output:**\n```{run_result.stdout.decode()}```")
         if run_result.stderr:
-            output_text += f"**Errors:**\n```{run_result.stderr.decode()}```"
+            output.append(f"**Errors:**\n```{run_result.stderr.decode()}```")
+        output_text = "\n".join(output) or "No output"
 
-        if not output_text:
-            output_text = "No output."
-
-        # Save to log
-        RUN_LOGS.append(f"{language} run OK ({len(run_result.stdout)} bytes out)")
+        # Log and respond
+        RUN_LOGS.append(f"{language} run ({len(used_attachments)} files)")
         if len(RUN_LOGS) > MAX_LOGS:
             RUN_LOGS.pop(0)
 
-        # Send output
         if len(output_text) > 1800:
-            output_file = f"{TEMP_DIR}/output.txt"
-            with open(output_file, "w") as f:
+            with open(f"{TEMP_DIR}/output.txt", "w") as f:
                 f.write(output_text)
-            await interaction.followup.send(content="Output too long, sending as file:", file=discord.File(output_file))
+            await interaction.followup.send(
+                content="Output too long:",
+                file=discord.File(f"{TEMP_DIR}/output.txt")
+            )
         else:
             await interaction.followup.send(output_text)
 
     except subprocess.TimeoutExpired:
-        await interaction.followup.send("Execution timed out.")
+        await interaction.followup.send("⏰ Execution timed out")
     except Exception as e:
-        tb = traceback.format_exc()
-        await interaction.followup.send(f"Error:\n```{tb}```")
+        await interaction.followup.send(f"❌ Error:\n```{traceback.format_exc()}```")
     finally:
-        # Cleanup temp files
+        # Cleanup
         for f in os.listdir(TEMP_DIR):
             try:
                 os.remove(os.path.join(TEMP_DIR, f))
-            except Exception:
+            except:
                 pass
 
 @tree.command(name="eval", description="Run code or files")
-@app_commands.describe(flags="Command-line style flags, e.g. -l python -c 'print(123)'")
+@app_commands.describe(flags="Command flags (see /help)")
 async def eval_command(interaction: discord.Interaction, flags: str):
     args = shlex.split(flags)
     
     if "-fl" in args:
-        # Ask for file with specific instructions
         await interaction.response.send_message(
-            "Please reply to this message with your file attached and mention @coderunner.bot in your message."
+            "📤 Please reply with @coderunner.bot and your files attached"
         )
         
         def check(m):
@@ -235,11 +239,11 @@ async def eval_command(interaction: discord.Interaction, flags: str):
             )
         
         try:
-            msg = await client.wait_for('message', check=check, timeout=60.0)
-            await interaction.followup.send("✅ File received! Processing...")
+            msg = await client.wait_for("message", check=check, timeout=60)
+            await interaction.followup.send("🔍 Processing...")
             await process_eval(interaction, args, msg.attachments)
         except asyncio.TimeoutError:
-            await interaction.followup.send("⏰ Timed out waiting for file. Please try again.", ephemeral=True)
+            await interaction.followup.send("⌛ Timed out waiting for files")
     else:
         await interaction.response.defer(thinking=True)
         await process_eval(interaction, args, [])
@@ -247,7 +251,6 @@ async def eval_command(interaction: discord.Interaction, flags: str):
 @client.event
 async def on_ready():
     await tree.sync()
-    print(f"Logged in as {client.user} (ID: {client.user.id})")
-    print(f"Invite URL: https://discord.com/api/oauth2/authorize?client_id={client.user.id}&permissions=274878024704&scope=bot%20applications.commands")
+    print(f"Ready as {client.user}")
 
 client.run(TOKEN)
