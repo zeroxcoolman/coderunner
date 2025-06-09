@@ -60,14 +60,12 @@ async def help_command(interaction: discord.Interaction):
 `/eval -r [options]`
 - `-l language` (c, python, rust, go, bash)
 - `-c "code"` (inline code)
-- `-ln file1 file2` (link specific files)
 - `-f "flags"` (compiler flags)
-- `-fl` (upload files in next message)
+- `-fl` (upload files in next message, you can also add multiple and they will be linked)
 
 **Examples:**
 - `/eval -r main.c` (auto-detects C)
 - `/eval -r -l python -c "print('hello')"`
-- `/eval -r -ln main.c helper.c` (multiple files)
 - `/eval -r -fl` (upload files after command)
 """
     await interaction.response.send_message(help_text, ephemeral=True)
