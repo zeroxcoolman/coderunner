@@ -12,6 +12,7 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
 # Intents
 intents = discord.Intents.default()
+intents.message_content = True  # Needed to see message content
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
@@ -62,14 +63,14 @@ async def help_command(interaction: discord.Interaction):
 - `-c "code"`  (inline code to run)
 - `-ln file1 file2 ...` (optional linked filenames)
 - `-f "flags"` (optional compiler flags)
-- `-fl` (will prompt for file upload in next message)
+- `-fl` (will prompt for file upload - reply with @coderunner.bot and your file)
 
 **Examples:**
 - `/eval -r main.c` (auto detects C)
 - `/eval -r -l c -ln main.c`
 - `/eval -r -l python -c "print(123)"`
 - `/eval -r -l rust -c "fn main() { println!(\"Hello\"); }"`
-- `/eval -r -fl` (then send file in next message)
+- `/eval -r -fl` (then reply with @coderunner.bot and your file)
 
 **Security Notice:**
 This bot executes code with basic protection (timeouts, temp dirs). Use with caution.
@@ -135,7 +136,6 @@ async def process_eval(interaction: discord.Interaction, args: list, attachments
 
         # Save attachments if provided
         used_attachments = []
-
         for attachment in attachments:
             if (not linked_files) or (attachment.filename in linked_files):
                 file_path = os.path.join(TEMP_DIR, attachment.filename)
@@ -195,7 +195,6 @@ async def process_eval(interaction: discord.Interaction, args: list, attachments
 
         # Send output
         if len(output_text) > 1800:
-            # Send as file
             output_file = f"{TEMP_DIR}/output.txt"
             with open(output_file, "w") as f:
                 f.write(output_text)
@@ -222,19 +221,25 @@ async def eval_command(interaction: discord.Interaction, flags: str):
     args = shlex.split(flags)
     
     if "-fl" in args:
-        # Ask for file in follow-up
-        await interaction.response.send_message("Please send your file as an attachment in the next message.")
+        # Ask for file with specific instructions
+        await interaction.response.send_message(
+            "Please reply to this message with your file attached and mention @coderunner.bot in your message."
+        )
         
         def check(m):
-            return m.author == interaction.user and m.attachments and m.channel == interaction.channel
+            return (
+                m.author == interaction.user and
+                client.user in m.mentions and
+                bool(m.attachments) and
+                m.channel == interaction.channel
+            )
         
         try:
             msg = await client.wait_for('message', check=check, timeout=60.0)
-            # Now process with the attachment
-            await interaction.followup.send("Processing your file...")
+            await interaction.followup.send("✅ File received! Processing...")
             await process_eval(interaction, args, msg.attachments)
         except asyncio.TimeoutError:
-            await interaction.followup.send("Timed out waiting for file.", ephemeral=True)
+            await interaction.followup.send("⏰ Timed out waiting for file. Please try again.", ephemeral=True)
     else:
         await interaction.response.defer(thinking=True)
         await process_eval(interaction, args, [])
@@ -242,6 +247,7 @@ async def eval_command(interaction: discord.Interaction, flags: str):
 @client.event
 async def on_ready():
     await tree.sync()
-    print(f"Logged in as {client.user}")
+    print(f"Logged in as {client.user} (ID: {client.user.id})")
+    print(f"Invite URL: https://discord.com/api/oauth2/authorize?client_id={client.user.id}&permissions=274878024704&scope=bot%20applications.commands")
 
 client.run(TOKEN)
