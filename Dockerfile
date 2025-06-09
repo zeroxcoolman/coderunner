@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     php \                         # PHP interpreter
     swift \                       # Swift compiler/interpreter
     kotlin \                      # Kotlin compiler
-    lua5.3 \                      # Lua interpreter (version 5.3)
+    lua5.3                        # Lua interpreter (version 5.3)
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
