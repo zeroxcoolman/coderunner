@@ -45,6 +45,27 @@ LANGUAGES = {
         "run": "bash {sources}",
         "extension": ".sh",
     },
+     "cpp": {
+        "compile": "g++ {sources} -o {output} {flags}",
+        "run": "./{output}",
+        "extension": ".cpp",
+    },
+    "php": {
+        "run": "php {sources}",
+        "extension": ".php",
+    },
+    "lua": {
+        "run": "lua {sources}",
+        "extension": ".lua",
+    },
+    "ruby": {
+        "run": "ruby {sources}",
+        "extension": ".rb",
+    },
+    "javascript": {
+        "run": "node {sources}",
+        "extension": ".js",
+    },
 }
 
 MAX_LOGS = 10
@@ -58,7 +79,7 @@ async def help_command(interaction: discord.Interaction):
 `/help` - Show this help message
 
 `/eval -r [options]`
-- `-l language` (c, python, rust, go, bash)
+- `-l language` (c, python, rust, go, bash, cpp, lua, php, javascript, ruby, java coming soon!)
 - `-c "code"` (inline code)
 - `-f "flags"` (compiler flags)
 - `-fl` (upload files in next message, you can also add multiple and they will be linked)
