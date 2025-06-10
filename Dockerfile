@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Install compilers and runtimes
 RUN apt-get update && apt-get install -y \
     gcc \
-    g++ \  # For C++
+    g++ \
     rustc \
     python3 \
     python3-pip \
@@ -12,11 +12,11 @@ RUN apt-get update && apt-get install -y \
     bash \
     build-essential \
     ca-certificates \
-    php \  # For PHP
-    lua5.4 \  # For Lua
-    ruby \  # For Ruby
-    nodejs \  # For JavaScript
-    npm \  # For JavaScript (npm comes with Node.js)
+    php \
+    lua5.4 \
+    ruby \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
